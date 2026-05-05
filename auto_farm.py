@@ -91,14 +91,36 @@ def check_mining_info():
         data = response.json()
 
         if data.get("code") == 0:
-            mining_data = data.get("data", {}).get("mining_data", {})
+            dataset = data.get("data", {})
+            mining_asset = dataset.get("mining_asset", {})
+            mining_data = dataset.get("mining_data", {})
+
+            mineral_num = mining_asset.get("mineral_num", 0)
+            red_packet = mining_asset.get("red_packet_points", 0)
+
+            curr_level = mining_data.get("curr_level", 0)
+            max_level = mining_data.get("max_level", 0)
+            mining_rate = mining_data.get("mining_rate", 0)
+
             load_cap = mining_data.get("load_cap", 0)
             load_cap_max = mining_data.get("load_cap_max", 0)
             remain_seconds = mining_data.get("remain_seconds", 0)
 
-            print(f"[+] Status Ladang: {load_cap}/{load_cap_max}")
+            # CLEAR SCREEN untuk efek Real-Time (opsional, tapi bagus buat display)
+            # os.system('cls' if os.name == 'nt' else 'clear')
+
+            print("-----------------------------------------")
+            print(f"💰 Saldo Mineral     : {mineral_num}")
+            print(f"🧧 Red Packet Points : {red_packet}")
+            print(f"⭐ Level Saat Ini    : {curr_level}/{max_level}")
+            print(f"⛏️  Mining Rate       : {mining_rate}/detik")
+            print(f"🛒 Status Gerobak    : {load_cap}/{load_cap_max}")
+            print("-----------------------------------------")
+
             if remain_seconds > 0:
-                print(f"[+] Waktu panen selanjutnya: {remain_seconds} detik lagi.")
+                print(f"[+] Server menyuruh tunggu: {remain_seconds} detik untuk panen maksimal.")
+            else:
+                print(f"[+] Gerobak sudah bisa dipanen atau waktu tunggu habis!")
 
             return {
                 "can_harvest": load_cap > 0,
@@ -170,10 +192,11 @@ def auto_farm_loop():
         else:
             wait_time = info["remain_seconds"]
             if wait_time > 0:
-                print(f"[*] Menunggu selama {wait_time} detik sampai panen siap...")
-                time.sleep(wait_time + random.randint(1, 5)) # Tambah random delay biar keliatan natural
+                print(f"[*] Deteksi auto-sleep dari server aktif!")
+                print(f"[*] Menunggu (sleep) selama {wait_time} detik sampai gerobak penuh...")
+                time.sleep(wait_time + random.randint(1, 3)) # Tambah sedikit random delay untuk keamanan
             else:
-                print("[*] Menunggu sejenak...")
+                print("[*] Gerobak kosong tapi waktu tunggu 0, menunggu 30 detik untuk menghindari spam...")
                 time.sleep(30)
 
 
