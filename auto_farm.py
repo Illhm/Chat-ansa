@@ -9,14 +9,12 @@ import random
 import os
 
 # Ganti token authorization jika sudah kadaluarsa
-# Membaca dari environment variables untuk keamanan
-AUTHORIZATION_TOKEN = os.environ.get("HIFAMI_AUTH_TOKEN", "")
-MEMBER_ID = os.environ.get("HIFAMI_MEMBER_ID", "")
+AUTHORIZATION_TOKEN = "<GANTI_DENGAN_TOKEN_JWT_KAMU>"
+MEMBER_ID = "<GANTI_DENGAN_MEMBER_ID_KAMU>"
 
-if not AUTHORIZATION_TOKEN or not MEMBER_ID:
-    print("[!] ERROR: HIFAMI_AUTH_TOKEN atau HIFAMI_MEMBER_ID belum diset di environment variables.")
-    print("Contoh penggunaan: HIFAMI_AUTH_TOKEN='token_kamu' HIFAMI_MEMBER_ID='id_kamu' python auto_farm.py")
-    exit(1)
+# Payload untuk Auto Relogin (Diambil dari HAR)
+# Code ini bersifat sekali pakai atau akan expired dari server Google/Hifami.
+LOGIN_PAYLOAD_CODE = "<GANTI_DENGAN_PAYLOAD_CODE_DARI_APK>"
 
 # Header statis yang diambil dari log HAR
 # PERHATIAN: business_sign, devicetoken, rcsign dsb adalah nilai statis dari log terakhir.
@@ -63,7 +61,7 @@ HEADERS = {
 }
 
 
-def get_dynamic_headers():
+def get_dynamic_headers(is_json=False):
     """
     Menambahkan header dinamis seperti timestamp ke dalam header agar
     terlihat seperti request asli.
@@ -71,11 +69,52 @@ def get_dynamic_headers():
     ts = str(int(time.time()))
     ts_ms = str(int(time.time() * 1000))
 
+    global AUTHORIZATION_TOKEN
     headers_copy = HEADERS.copy()
     headers_copy["timestamp"] = ts
     headers_copy["requesttimestampinms"] = ts_ms
     headers_copy["x-ts"] = ts
+
+    # Update token ke yang terbaru (berjaga-jaga habis relogin)
+    headers_copy["authorization"] = AUTHORIZATION_TOKEN
+    headers_copy["x-authorization"] = AUTHORIZATION_TOKEN
+
+    if is_json:
+        headers_copy["content-type"] = "application/json; charset=utf-8"
+
     return headers_copy
+
+def attempt_relogin():
+    """
+    Fungsi untuk mencoba memperpanjang token dengan endpoint login.
+    Membutuhkan payload 'code' yang valid dari request asli APK.
+    """
+    global AUTHORIZATION_TOKEN
+    print("\n[!] Token terdeteksi kadaluarsa. Mencoba AUTO-RELOGIN...")
+    url = "https://api.hifamiapp.com/auth/v6/login"
+
+    payload = {
+        "code": LOGIN_PAYLOAD_CODE,
+        "id": MEMBER_ID,
+        "scene": "AppLifecycle"
+    }
+
+    try:
+        response = requests.post(url, headers=get_dynamic_headers(is_json=True), json=payload)
+        data = response.json()
+
+        if data.get("code") == 0:
+            new_token = data.get("data", {}).get("token", "")
+            if new_token:
+                AUTHORIZATION_TOKEN = new_token
+                print("[+] RELOGIN SUKSES! Token baru berhasil didapatkan.")
+                return True
+        print(f"[-] Gagal Relogin: {data.get('error', 'Error / Payload Code Basi')}")
+        print("[-] Coba generate payload code baru dari aplikasi!")
+        return False
+    except Exception as e:
+        print(f"[-] Error request relogin: {e}")
+        return False
 
 
 def check_mining_info():
@@ -128,9 +167,14 @@ def check_mining_info():
                 "load_cap": load_cap
             }
         else:
-            print(f"[-] Gagal mengecek info: {data.get('error', 'Error tidak diketahui')}")
-            # Kemungkinan gagal karena business_sign/token salah atau basi
-            print("[-] Bisa jadi token atau business_sign sudah basi!")
+            error_msg = data.get('error', '')
+            print(f"[-] Gagal mengecek info: {error_msg}")
+
+            # Deteksi jika token invalid/expired
+            if "Authorization is required" in error_msg or "expired" in error_msg.lower() or data.get("code") != 0:
+                print("[-] Token invalid atau basi!")
+                return "NEED_LOGIN"
+
             return None
     except Exception as e:
         print(f"[-] Error request: {e}")
@@ -176,8 +220,18 @@ def auto_farm_loop():
     while True:
         info = check_mining_info()
 
+        if info == "NEED_LOGIN":
+            # Coba auto relogin
+            relogin_success = attempt_relogin()
+            if relogin_success:
+                print("[*] Melanjutkan script dengan token baru...")
+                continue # Coba cek info lagi dari awal pake token baru
+            else:
+                print("[!] Berhenti. Harus update token/code manual di file.")
+                break
+
         if info is None:
-            print("[!] Berhenti. Ada error atau token invalid.")
+            print("[!] Berhenti karena error tidak diketahui.")
             break
 
         if info["can_harvest"]:
